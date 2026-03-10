@@ -67,18 +67,20 @@ io.on("connection", async socket => {
   socket.on("message", async msg => {
     if(!msg) return;
 
-    let user = socket.user || { name: "Desconhecido", avatar: "" };
-    let newMessage;
+    // Corrige usuário: pega socket.user ou msg.user
+    let user = socket.user || (msg.user ? msg.user : { name: "Desconhecido", avatar: "" });
 
+    // Atualiza socket.user se ainda não tinha
+    if(!socket.user && msg.user) socket.user = msg.user;
+
+    let newMessage;
     if(typeof msg === "object"){
-      // Audio ou texto enviado como objeto
       newMessage = new Message({
         user,
         text: msg.text || undefined,
         audio: msg.audio || undefined
       });
     } else if(typeof msg === "string") {
-      // Texto simples
       newMessage = new Message({ user, text: msg });
     } else return;
 
