@@ -56,7 +56,8 @@ async function uploadToB2(filePath,fileName){
     contentType:"audio/webm"
   });
 
-  return `https://f004.backblazeb2.com/file/${B2_BUCKET_NAME}/${fileName}`;
+  /* LINK AGORA PASSA PELO SERVIDOR */
+  return `https://chat-server-1-gs99.onrender.com/audio/${fileName}`;
 }
 
 /* ==================================================
@@ -98,6 +99,34 @@ app.post("/upload-audio",upload.single("audio"),async(req,res)=>{
 
     console.error(err);
     res.status(500).json({ error:"upload error" });
+
+  }
+
+});
+
+/* ==================================================
+ROTA PARA SERVIR AUDIO (BUCKET PRIVADO)
+================================================== */
+
+app.get("/audio/:file", async (req,res)=>{
+
+  try{
+
+    const fileName=req.params.file;
+
+    const response=await b2.downloadFileByName({
+      bucketName:B2_BUCKET_NAME,
+      fileName:fileName
+    });
+
+    res.setHeader("Content-Type","audio/webm");
+
+    response.data.pipe(res);
+
+  }catch(err){
+
+    console.error(err);
+    res.status(404).send("audio error");
 
   }
 
