@@ -33,11 +33,8 @@ app.post("/upload-audio", upload.single("audio"), (req, res) => {
   // Converte para AAC/M4A mono, bitrate 128kbps
   exec(`ffmpeg -i "${inputPath}" -c:a aac -b:a 128k -ac 1 "${outputPath}"`, (err) => {
     if (err) return res.status(500).json({ error: "Erro na conversão de áudio" });
-    
-    // Remove arquivo original WebM
-    fs.unlink(inputPath, () => {});
 
-    // Retorna URL do áudio final
+    fs.unlink(inputPath, () => {}); // Remove WebM original
     res.json({ url: `https://chat-server-1-gs99.onrender.com/uploads/${outputFileName}` });
   });
 });
@@ -59,6 +56,7 @@ const MessageSchema = new mongoose.Schema({
   user: { name: String, avatar: String },
   text: String,
   audio: String,
+  duration: Number, // duração do áudio em segundos
   time: { type: Date, default: Date.now }
 });
 const Message = mongoose.model("Message", MessageSchema);
@@ -69,7 +67,7 @@ const Message = mongoose.model("Message", MessageSchema);
 io.on("connection", async socket => {
   console.log("🟢 Usuário conectado");
 
-  // Envia histórico
+  // Histórico
   const history = await Message.find().sort({ time:1 }).limit(200);
   socket.emit("history", history);
 
@@ -91,7 +89,8 @@ io.on("connection", async socket => {
       newMessage = new Message({
         user,
         text: msg.text || undefined,
-        audio: msg.audio || undefined
+        audio: msg.audio || undefined,
+        duration: msg.duration || undefined
       });
     } else if(typeof msg === "string") {
       newMessage = new Message({ user, text: msg });
