@@ -4,6 +4,9 @@ const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const multer = require("multer");
+const path = require("path");
+const { exec } = require("child_process");
+const fs = require("fs");
 
 const app = express();
 const server = http.createServer(app);
@@ -13,22 +16,35 @@ app.use(cors());
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
-/* =====================
-UPLOAD ÁUDIO
-===================== */
+// ---------------------
+// UPLOAD ÁUDIO
+// ---------------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => cb(null, Date.now() + ".webm")
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
 });
 const upload = multer({ storage });
 
-app.post("/upload-audio", upload.single("audio"), (req,res)=>{
-  res.json({ url: "https://chat-server-1-gs99.onrender.com/uploads/" + req.file.filename });
+app.post("/upload-audio", upload.single("audio"), (req, res) => {
+  const inputPath = req.file.path;
+  const outputFileName = Date.now() + ".m4a";
+  const outputPath = path.join("uploads", outputFileName);
+
+  // Converte para AAC/M4A mono, bitrate 128kbps
+  exec(`ffmpeg -i "${inputPath}" -c:a aac -b:a 128k -ac 1 "${outputPath}"`, (err) => {
+    if (err) return res.status(500).json({ error: "Erro na conversão de áudio" });
+    
+    // Remove arquivo original WebM
+    fs.unlink(inputPath, () => {});
+
+    // Retorna URL do áudio final
+    res.json({ url: `https://chat-server-1-gs99.onrender.com/uploads/${outputFileName}` });
+  });
 });
 
-/* =====================
-MONGODB
-===================== */
+// ---------------------
+// MONGODB
+// ---------------------
 mongoose.connect(
   "mongodb+srv://sgoffc:e%2Dsports@cluster0.ojl9qde.mongodb.net/chat",
   { useNewUrlParser: true, useUnifiedTopology: true }
@@ -36,9 +52,9 @@ mongoose.connect(
 .then(()=> console.log("✅ MongoDB conectado"))
 .catch(err=> console.error("❌ Erro MongoDB:", err));
 
-/* =====================
-MODELO DE MENSAGEM
-===================== */
+// ---------------------
+// MODELO DE MENSAGEM
+// ---------------------
 const MessageSchema = new mongoose.Schema({
   user: { name: String, avatar: String },
   text: String,
@@ -47,9 +63,9 @@ const MessageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model("Message", MessageSchema);
 
-/* =====================
-SOCKET.IO
-===================== */
+// ---------------------
+// SOCKET.IO
+// ---------------------
 io.on("connection", async socket => {
   console.log("🟢 Usuário conectado");
 
@@ -67,10 +83,7 @@ io.on("connection", async socket => {
   socket.on("message", async msg => {
     if(!msg) return;
 
-    // Corrige usuário: pega socket.user ou msg.user
     let user = socket.user || (msg.user ? msg.user : { name: "Desconhecido", avatar: "" });
-
-    // Atualiza socket.user se ainda não tinha
     if(!socket.user && msg.user) socket.user = msg.user;
 
     let newMessage;
