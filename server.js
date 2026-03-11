@@ -25,7 +25,11 @@ const R2_CLIENT = new S3Client({
     secretAccessKey: "2e185f1e7194f59a9f8c82c4295dcf9aa346f574060831dfe3b7bdebbaa5ce01"
   }
 });
+
 const BUCKET_NAME = "chat-audio";
+
+// 🔥 URL pública correta do bucket
+const PUBLIC_AUDIO_URL = "https://pub-dda6df999faa4fa1870ab871575ab5d4.r2.dev";
 
 // ---------------------
 // MULTER CONFIG
@@ -34,21 +38,27 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "/tmp/"),
   filename: (req, file, cb) => cb(null, Date.now() + ".webm")
 });
+
 const upload = multer({ storage });
 
 // ---------------------
 // FUNÇÃO UPLOAD R2
 // ---------------------
 async function uploadToR2(filePath, fileName) {
+
   const fileData = fs.readFileSync(filePath);
+
   await R2_CLIENT.send(new PutObjectCommand({
     Bucket: BUCKET_NAME,
     Key: fileName,
     Body: fileData,
     ContentType: "audio/webm"
   }));
+
   fs.unlink(filePath, () => {});
-  return `https://${BUCKET_NAME}.r2.cloudflarestorage.com/${fileName}`;
+
+  // 🔥 URL CORRETA
+  return `${PUBLIC_AUDIO_URL}/${fileName}`;
 }
 
 // ---------------------
@@ -56,13 +66,19 @@ async function uploadToR2(filePath, fileName) {
 // ---------------------
 app.post("/upload-audio", upload.single("audio"), async (req, res) => {
   try {
+
     const filePath = req.file.path;
     const fileName = req.file.filename;
+
     const url = await uploadToR2(filePath, fileName);
+
     res.json({ url });
-  } catch(err) {
+
+  } catch (err) {
+
     console.error(err);
     res.status(500).json({ error: "upload error" });
+
   }
 });
 
@@ -70,43 +86,72 @@ app.post("/upload-audio", upload.single("audio"), async (req, res) => {
 // MONGODB
 // ---------------------
 mongoose.connect("mongodb+srv://sgoffc:e%2Dsports@cluster0.ojl9qde.mongodb.net/chat")
-  .then(()=> console.log("✅ MongoDB conectado"))
-  .catch(err=> console.error("❌ Erro MongoDB:", err));
+.then(() => console.log("✅ MongoDB conectado"))
+.catch(err => console.error("❌ MongoDB erro:", err));
 
 // ---------------------
-// MODELO DE MENSAGEM
+// MODELO MENSAGEM
 // ---------------------
 const MessageSchema = new mongoose.Schema({
-  user: { name: String, avatar: String },
+
+  user: {
+    name: String,
+    avatar: String
+  },
+
   text: String,
   audio: String,
   duration: Number,
-  time: { type: Date, default: Date.now }
+
+  time: {
+    type: Date,
+    default: Date.now
+  }
+
 });
+
 const Message = mongoose.model("Message", MessageSchema);
 
 // ---------------------
 // SOCKET.IO
 // ---------------------
 io.on("connection", async socket => {
+
   console.log("🟢 Usuário conectado");
 
-  const history = await Message.find().sort({ time:1 }).limit(200);
-  socket.emit("history", history);
+  const history = await Message.find()
+  .sort({ time: -1 })
+  .limit(200)
+  .lean();
 
-  socket.on("join", user => { socket.user = user; });
+  socket.emit("history", history.reverse());
+
+  socket.on("join", user => {
+    socket.user = user;
+  });
 
   socket.on("message", async msg => {
+
     const user = socket.user || msg.user;
+
     const newMessage = new Message({
       user,
       text: msg.text,
       audio: msg.audio,
       duration: msg.duration
     });
+
     await newMessage.save();
+
     io.emit("message", newMessage);
+
   });
+
 });
 
-server.listen(process.env.PORT || 3000, ()=> console.log("🚀 Servidor online"));
+// ---------------------
+// START SERVER
+// ---------------------
+server.listen(process.env.PORT || 3000, () => {
+  console.log("🚀 Servidor online");
+});
