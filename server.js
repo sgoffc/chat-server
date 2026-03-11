@@ -36,7 +36,7 @@ const PUBLIC_AUDIO_URL = "https://pub-dda6df999faa4fa1870ab871575ab5d4.r2.dev";
 // ---------------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "/tmp/"),
-  filename: (req, file, cb) => cb(null, Date.now() + ".webm")
+  filename: (req, file, cb) => cb(null, Date.now() + ".ogg") // alterado
 });
 
 const upload = multer({ storage });
@@ -52,12 +52,11 @@ async function uploadToR2(filePath, fileName) {
     Bucket: BUCKET_NAME,
     Key: fileName,
     Body: fileData,
-    ContentType: "audio/webm"
+    ContentType: "audio/ogg" // alterado
   }));
 
   fs.unlink(filePath, () => {});
 
-  // 🔥 URL CORRETA
   return `${PUBLIC_AUDIO_URL}/${fileName}`;
 }
 
