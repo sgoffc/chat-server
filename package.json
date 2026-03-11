@@ -1,7 +1,7 @@
 {
   "name": "chat-server",
   "version": "1.0.0",
-  "description": "Servidor de chat simples com áudio e R2",
+  "description": "Servidor de chat com áudio, GIFs e R2",
   "type": "module",
   "main": "server.js",
   "dependencies": {
