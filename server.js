@@ -1,11 +1,11 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const mongoose = require("mongoose");
-const cors = require("cors");
-const multer = require("multer");
-const fs = require("fs");
-const fetch = require("node-fetch");
+import express from "express";
+import http from "http";
+import { Server } from "socket.io";
+import mongoose from "mongoose";
+import cors from "cors";
+import multer from "multer";
+import fs from "fs";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 const app = express();
 const server = http.createServer(app);
@@ -15,103 +15,105 @@ app.use(cors());
 app.use(express.json());
 
 /* ==================================================
-CLOUD FLARE R2
+CLOUDflare R2
 ================================================== */
-const R2_ACCOUNT_ID = "f530f1401aaabb2e513e985745fe659b"; // seu account id
-const R2_ACCESS_KEY = "v0j0VG8xMg1XyNKc4Wpwb0hBh5YyrXn7djeKbX4I"; // key
-const R2_SECRET_KEY = "b0fb8d6bac3fa426f4ed9c6424f25af8"; // secret
-const R2_BUCKET = "chat-audio";
-const R2_ENDPOINT = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+
+const s3 = new S3Client({
+  endpoint: "https://f530f1401aaabb2e513e985745fe659b.r2.cloudflarestorage.com",
+  region: "auto",
+  credentials: {
+    accessKeyId: "v0j0VG8xMg1XyNKc4Wpwb0hBh5YyrXn7djeKbX4I",
+    secretAccessKey: "b0fb8d6bac3fa426f4ed9c6424f25af8"
+  }
+});
+
+async function uploadToR2(filePath, fileName) {
+  const fileStream = fs.createReadStream(filePath);
+  await s3.send(new PutObjectCommand({
+    Bucket: "chat-audio",
+    Key: fileName,
+    Body: fileStream,
+    ContentType: "audio/webm",
+  }));
+  return `https://f530f1401aaabb2e513e985745fe659b.r2.cloudflarestorage.com/chat-audio/${fileName}`;
+}
 
 /* ==================================================
-MULTER PARA UPLOAD
+MULTER
 ================================================== */
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "/tmp/"),
-  filename: (req, file, cb) => cb(null, Date.now() + ".webm"),
+  filename: (req, file, cb) => cb(null, Date.now() + ".webm")
 });
+
 const upload = multer({ storage });
-
-/* ==================================================
-UPLOAD PARA R2
-================================================== */
-async function uploadToR2(filePath, fileName) {
-  const data = fs.readFileSync(filePath);
-
-  const res = await fetch(`${R2_ENDPOINT}/${R2_BUCKET}/${fileName}`, {
-    method: "PUT",
-    body: data,
-    headers: {
-      "Content-Type": "audio/webm",
-      "Authorization": `Basic ${Buffer.from(R2_ACCESS_KEY + ":" + R2_SECRET_KEY).toString("base64")}`,
-    },
-  });
-
-  if (!res.ok) throw new Error("Erro ao enviar para R2");
-
-  return `${R2_ENDPOINT}/${R2_BUCKET}/${fileName}`;
-}
 
 /* ==================================================
 UPLOAD AUDIO
 ================================================== */
+
 app.post("/upload-audio", upload.single("audio"), async (req, res) => {
   try {
     const filePath = req.file.path;
     const fileName = req.file.filename;
 
     const url = await uploadToR2(filePath, fileName);
-
     fs.unlink(filePath, () => {});
-
     res.json({ url });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "upload error" });
+    res.status(500).json({ error: "Erro ao enviar áudio" });
   }
 });
 
 /* ==================================================
 MONGODB
 ================================================== */
-mongoose.connect(
-  "mongodb+srv://sgoffc:e%2Dsports@cluster0.ojl9qde.mongodb.net/chat"
-);
+
+mongoose.connect("mongodb+srv://sgoffc:e%2Dsports@cluster0.ojl9qde.mongodb.net/chat");
 
 /* ==================================================
 SCHEMA
 ================================================== */
+
 const MessageSchema = new mongoose.Schema({
   user: { name: String, avatar: String },
   text: String,
   audio: String,
   duration: Number,
-  time: { type: Date, default: Date.now },
+  time: { type: Date, default: Date.now }
 });
+
 const Message = mongoose.model("Message", MessageSchema);
 
 /* ==================================================
-SOCKET
+SOCKET.IO
 ================================================== */
+
 io.on("connection", async socket => {
   const history = await Message.find().sort({ time: 1 }).limit(200);
   socket.emit("history", history);
 
-  socket.on("join", user => { socket.user = user; });
+  socket.on("join", user => socket.user = user);
 
   socket.on("message", async msg => {
-    let user = socket.user || msg.user;
+    const user = socket.user || msg.user;
     const newMessage = new Message({
       user,
       text: msg.text,
       audio: msg.audio,
-      duration: msg.duration,
+      duration: msg.duration
     });
     await newMessage.save();
     io.emit("message", newMessage);
   });
 });
 
+/* ==================================================
+START SERVER
+================================================== */
+
 server.listen(process.env.PORT || 3000, () => {
-  console.log("Servidor rodando na porta 3000");
+  console.log("Servidor rodando na porta", process.env.PORT || 3000);
 });
