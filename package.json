@@ -13,6 +13,6 @@
     "cors": "^2.8.5",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^3.3.2",
-    "@cloudflare/r2": "^1.0.0"
+    "@aws-sdk/client-s3": "^3.382.0"
   }
 }
