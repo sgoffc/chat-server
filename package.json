@@ -1,13 +1,9 @@
 {
   "name": "chat-server",
   "version": "1.0.0",
-  "description": "Chat em tempo real com áudio e GIFs",
-  "main": "server.js",
+  "description": "Servidor de chat simples com áudio e R2",
   "type": "module",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
+  "main": "server.js",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.474.0",
     "cors": "^2.8.5",
@@ -15,11 +11,5 @@
     "mongoose": "^7.3.4",
     "multer": "^1.4.5-lts.1",
     "socket.io": "^4.7.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.3"
-  },
-  "keywords": ["chat", "socket.io", "audio", "cloudflare", "r2"],
-  "author": "Valmir",
-  "license": "MIT"
+  }
 }
