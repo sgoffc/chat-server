@@ -21,8 +21,8 @@ const R2_CLIENT = new S3Client({
   endpoint: "https://f530f1401aaabb2e513e985745fe659b.r2.cloudflarestorage.com",
   region: "auto",
   credentials: {
-    accessKeyId: "v0j0VG8xMg1XyNKc4Wpwb0hBh5YyrXn7djeKbX4I",
-    secretAccessKey: "b0fb8d6bac3fa426f4ed9c6424f25af8"
+    accessKeyId: "b2dbfd9d20b13d643d1ef41626ef80c4",
+    secretAccessKey: "2e185f1e7194f59a9f8c82c4295dcf9aa346f574060831dfe3b7bdebbaa5ce01"
   }
 });
 const BUCKET_NAME = "chat-audio";
