@@ -26,58 +26,88 @@ const R2_CLIENT = new S3Client({
   }
 });
 
-const BUCKET_NAME = "chat-audio";
-
-// 🔥 URL pública correta do bucket
+// ---------------------
+// BUCKETS E URLS PÚBLICAS
+// ---------------------
+const AUDIO_BUCKET = "chat-audio";
 const PUBLIC_AUDIO_URL = "https://pub-dda6df999faa4fa1870ab871575ab5d4.r2.dev";
+
+const IMAGE_BUCKET = "chat-image"; // novo bucket para imagens
+const PUBLIC_IMAGE_URL = "https://pub-00926b34f74a46b8b4ea23e9fdbb33af.r2.dev"; // URL pública imagens
 
 // ---------------------
 // MULTER CONFIG
 // ---------------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "/tmp/"),
-  filename: (req, file, cb) => cb(null, Date.now() + ".ogg") // alterado
+  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname)
 });
 
 const upload = multer({ storage });
 
 // ---------------------
-// FUNÇÃO UPLOAD R2
+// FUNÇÃO UPLOAD R2 ÁUDIO
 // ---------------------
-async function uploadToR2(filePath, fileName) {
-
+async function uploadAudioToR2(filePath, fileName) {
   const fileData = fs.readFileSync(filePath);
 
   await R2_CLIENT.send(new PutObjectCommand({
-    Bucket: BUCKET_NAME,
+    Bucket: AUDIO_BUCKET,
     Key: fileName,
     Body: fileData,
-    ContentType: "audio/ogg" // alterado
+    ContentType: "audio/ogg"
   }));
 
   fs.unlink(filePath, () => {});
-
   return `${PUBLIC_AUDIO_URL}/${fileName}`;
 }
 
 // ---------------------
-// ROTA UPLOAD ÁUDIO
+// FUNÇÃO UPLOAD R2 IMAGEM
 // ---------------------
+async function uploadImageToR2(filePath, fileName, mimeType) {
+  const fileData = fs.readFileSync(filePath);
+
+  await R2_CLIENT.send(new PutObjectCommand({
+    Bucket: IMAGE_BUCKET,
+    Key: fileName,
+    Body: fileData,
+    ContentType: mimeType
+  }));
+
+  fs.unlink(filePath, () => {});
+  return `${PUBLIC_IMAGE_URL}/${fileName}`;
+}
+
+// ---------------------
+// ROTAS UPLOAD
+// ---------------------
+
+// Upload de Áudio
 app.post("/upload-audio", upload.single("audio"), async (req, res) => {
   try {
-
     const filePath = req.file.path;
     const fileName = req.file.filename;
-
-    const url = await uploadToR2(filePath, fileName);
-
+    const url = await uploadAudioToR2(filePath, fileName);
     res.json({ url });
-
   } catch (err) {
-
     console.error(err);
     res.status(500).json({ error: "upload error" });
+  }
+});
 
+// Upload de Imagem
+app.post("/upload-image", upload.single("image"), async (req, res) => {
+  try {
+    const filePath = req.file.path;
+    const fileName = req.file.filename;
+    const mimeType = req.file.mimetype;
+
+    const url = await uploadImageToR2(filePath, fileName, mimeType);
+    res.json({ url });
+  } catch (err) {
+    console.error("Upload imagem falhou:", err);
+    res.status(500).json({ error: "upload error" });
   }
 });
 
@@ -89,63 +119,67 @@ mongoose.connect("mongodb+srv://sgoffc:e%2Dsports@cluster0.ojl9qde.mongodb.net/c
 .catch(err => console.error("❌ MongoDB erro:", err));
 
 // ---------------------
-// MODELO MENSAGEM
+// MODELOS MONGODB
 // ---------------------
 const MessageSchema = new mongoose.Schema({
-
-  user: {
-    name: String,
-    avatar: String
-  },
-
+  user: { name: String, avatar: String },
   text: String,
   audio: String,
   duration: Number,
-
-  time: {
-    type: Date,
-    default: Date.now
-  }
-
+  time: { type: Date, default: Date.now }
 });
 
 const Message = mongoose.model("Message", MessageSchema);
 
+const ImageMessageSchema = new mongoose.Schema({
+  user: { name: String, avatar: String },
+  image: String,
+  time: { type: Date, default: Date.now }
+});
+
+const ImageMessage = mongoose.model("ImageMessage", ImageMessageSchema);
+
 // ---------------------
-// SOCKET.IO
+// SOCKETS
 // ---------------------
+
+// Socket Áudio
 io.on("connection", async socket => {
+  console.log("🟢 Usuário conectado (áudio)");
 
-  console.log("🟢 Usuário conectado");
-
-  const history = await Message.find()
-  .sort({ time: -1 })
-  .limit(200)
-  .lean();
-
+  const history = await Message.find().sort({ time: -1 }).limit(200).lean();
   socket.emit("history", history.reverse());
 
-  socket.on("join", user => {
-    socket.user = user;
-  });
+  socket.on("join", user => { socket.user = user; });
 
   socket.on("message", async msg => {
-
     const user = socket.user || msg.user;
-
     const newMessage = new Message({
       user,
       text: msg.text,
       audio: msg.audio,
       duration: msg.duration
     });
-
     await newMessage.save();
-
     io.emit("message", newMessage);
-
   });
+});
 
+// Socket Imagem (namespace separado)
+io.of("/chat-image").on("connection", async socket => {
+  console.log("🟢 Usuário conectado (imagem)");
+
+  const history = await ImageMessage.find().sort({ time: -1 }).limit(200).lean();
+  socket.emit("history", history.reverse());
+
+  socket.on("join", user => { socket.user = user; });
+
+  socket.on("message", async msg => {
+    const user = socket.user || msg.user;
+    const newMessage = new ImageMessage({ user, image: msg.image });
+    await newMessage.save();
+    io.of("/chat-image").emit("message", newMessage);
+  });
 });
 
 // ---------------------
