@@ -14,9 +14,10 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(cors());
 app.use(express.json());
 
-/* ==================================================
+/* ===============================
 CLOUDFLARE R2
-================================================== */
+=============================== */
+
 const R2_CLIENT = new S3Client({
   endpoint: "https://f530f1401aaabb2e513e985745fe659b.r2.cloudflarestorage.com",
   region: "auto",
@@ -32,9 +33,10 @@ const PUBLIC_AUDIO_URL = "https://pub-dda6df999faa4fa1870ab871575ab5d4.r2.dev";
 const IMAGE_BUCKET = "chat-image";
 const PUBLIC_IMAGE_URL = "https://pub-00926b34f74a46b8b4ea23e9fdbb33af.r2.dev";
 
-/* ==================================================
+/* ===============================
 MULTER
-================================================== */
+=============================== */
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "/tmp/"),
   filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname)
@@ -42,9 +44,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-/* ==================================================
-UPLOAD R2
-================================================== */
+/* ===============================
+UPLOAD AUDIO
+=============================== */
 
 async function uploadAudioToR2(filePath, fileName) {
 
@@ -62,6 +64,10 @@ async function uploadAudioToR2(filePath, fileName) {
   return `${PUBLIC_AUDIO_URL}/${fileName}`;
 }
 
+/* ===============================
+UPLOAD IMAGE
+=============================== */
+
 async function uploadImageToR2(filePath, fileName, mimeType) {
 
   const fileData = fs.readFileSync(filePath);
@@ -78,9 +84,9 @@ async function uploadImageToR2(filePath, fileName, mimeType) {
   return `${PUBLIC_IMAGE_URL}/${fileName}`;
 }
 
-/* ==================================================
+/* ===============================
 ROTAS UPLOAD
-================================================== */
+=============================== */
 
 app.post("/upload-audio", upload.single("audio"), async (req, res) => {
 
@@ -95,7 +101,7 @@ app.post("/upload-audio", upload.single("audio"), async (req, res) => {
 
   } catch (err) {
 
-    console.error(err);
+    console.error("Erro upload áudio:", err);
     res.status(500).json({ error: "upload error" });
 
   }
@@ -116,24 +122,24 @@ app.post("/upload-image", upload.single("image"), async (req, res) => {
 
   } catch (err) {
 
-    console.error("Upload imagem falhou:", err);
+    console.error("Erro upload imagem:", err);
     res.status(500).json({ error: "upload error" });
 
   }
 
 });
 
-/* ==================================================
+/* ===============================
 MONGODB
-================================================== */
+=============================== */
 
 mongoose.connect("mongodb+srv://sgoffc:e%2Dsports@cluster0.ojl9qde.mongodb.net/chat")
-.then(() => console.log("✅ MongoDB conectado"))
-.catch(err => console.error("❌ MongoDB erro:", err));
+.then(() => console.log("MongoDB conectado"))
+.catch(err => console.error(err));
 
-/* ==================================================
-MODELO MENSAGEM (TUDO EM UM)
-================================================== */
+/* ===============================
+SCHEMA
+=============================== */
 
 const MessageSchema = new mongoose.Schema({
 
@@ -156,13 +162,13 @@ const MessageSchema = new mongoose.Schema({
 
 const Message = mongoose.model("Message", MessageSchema);
 
-/* ==================================================
+/* ===============================
 SOCKET
-================================================== */
+=============================== */
 
 io.on("connection", async socket => {
 
-  console.log("🟢 Usuário conectado");
+  console.log("Usuário conectado");
 
   try {
 
@@ -195,10 +201,10 @@ io.on("connection", async socket => {
       const newMessage = new Message({
 
         user,
-        text: msg.text,
-        audio: msg.audio,
-        image: msg.image,
-        duration: msg.duration
+        text: msg.text || null,
+        audio: msg.audio || null,
+        image: msg.image || null,
+        duration: msg.duration || null
 
       });
 
@@ -216,12 +222,12 @@ io.on("connection", async socket => {
 
 });
 
-/* ==================================================
-START SERVER
-================================================== */
+/* ===============================
+START
+=============================== */
 
 server.listen(process.env.PORT || 3000, () => {
 
-  console.log("🚀 Servidor online");
+  console.log("Servidor online");
 
 });
