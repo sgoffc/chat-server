@@ -81,6 +81,30 @@ async function uploadImageToR2(filePath, fileName, mimeType) {
 }
 
 /* ===============================
+ROTAS UPLOAD
+=============================== */
+
+app.post("/upload-audio", upload.single("audio"), async (req, res) => {
+  try {
+    const url = await uploadAudioToR2(req.file.path, req.file.filename);
+    res.json({ url });
+  } catch (err) {
+    console.error("Erro upload áudio:", err);
+    res.status(500).json({ error: "upload error" });
+  }
+});
+
+app.post("/upload-image", upload.single("image"), async (req, res) => {
+  try {
+    const url = await uploadImageToR2(req.file.path, req.file.filename, req.file.mimetype);
+    res.json({ url });
+  } catch (err) {
+    console.error("Erro upload imagem:", err);
+    res.status(500).json({ error: "upload error" });
+  }
+});
+
+/* ===============================
 MONGODB
 =============================== */
 
@@ -110,85 +134,58 @@ const MessageSchema = new mongoose.Schema({
 const Message = mongoose.model("Message", MessageSchema);
 
 /* ===============================
-STATUS ONLINE (NOVO)
+SOCKET PRINCIPAL (ÚNICO)
 =============================== */
 
-const usersOnline = new Map(); // socket.id -> user
-
-function broadcastOnlineUsers() {
-  const list = Array.from(usersOnline.values());
-  io.emit("users-online", list);
-}
-/* ===============================
-STATUS + PRESENÇA (NOVO)
-=============================== */
-
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
 
   console.log("Usuário conectado:", socket.id);
 
   socket.user = null;
 
   /* ===============================
-  JOIN (ENTRAR NO CHAT)
+  HISTORY
   =============================== */
+  try {
+    const history = await Message
+      .find()
+      .sort({ time: -1 })
+      .limit(200)
+      .lean();
 
+    socket.emit("history", history.reverse());
+  } catch (err) {
+    console.error("Erro histórico:", err);
+  }
+
+  /* ===============================
+  JOIN
+  =============================== */
   socket.on("join", (user) => {
     socket.user = {
       ...user,
       id: socket.id,
-      lastSeen: Date.now(),
-      typing: false,
-      recording: false
+      lastSeen: Date.now()
     };
 
-    usersOnline.set(socket.id, socket.user);
-    broadcastOnlineUsers();
-
-    io.emit("user-status", {
-      id: socket.id,
-      status: "online"
-    });
+    io.emit("user-online", socket.user);
   });
 
   /* ===============================
-  DIGITANDO
+  TYPING
   =============================== */
-
   socket.on("typing", (isTyping) => {
     if (!socket.user) return;
 
-    socket.user.typing = isTyping;
-    usersOnline.set(socket.id, socket.user);
-
     socket.broadcast.emit("typing", {
-      id: socket.id,
       name: socket.user.name,
       typing: isTyping
     });
   });
 
   /* ===============================
-  GRAVANDO ÁUDIO
+  MESSAGE
   =============================== */
-
-  socket.on("recording", (isRecording) => {
-    if (!socket.user) return;
-
-    socket.user.recording = isRecording;
-    usersOnline.set(socket.id, socket.user);
-
-    socket.broadcast.emit("recording", {
-      id: socket.id,
-      name: socket.user.name,
-      recording: isRecording
-    });
-  });
-
-  /* ===============================
-  MENSAGEM (MANTIDO + PEQUENO AJUSTE)
-  =============================== */
-
   socket.on("message", async (msg) => {
 
     try {
@@ -207,85 +204,32 @@ io.on("connection", (socket) => {
 
       io.emit("message", newMessage);
 
+      // 🔥 evento para bolinha (unread)
+      socket.broadcast.emit("new-message", {
+        from: user.name,
+        time: Date.now()
+      });
+
     } catch (err) {
       console.error("Erro salvar mensagem:", err);
     }
   });
 
   /* ===============================
-  DESCONECTAR (LAST SEEN)
+  DISCONNECT
   =============================== */
-
   socket.on("disconnect", () => {
-
-    if (socket.user) {
-      socket.user.lastSeen = Date.now();
-      usersOnline.set(socket.id, socket.user);
-
-      io.emit("user-status", {
-        id: socket.id,
-        status: "offline",
-        lastSeen: socket.user.lastSeen
-      });
-    }
-
-    usersOnline.delete(socket.id);
-    broadcastOnlineUsers();
-
     console.log("Usuário desconectado:", socket.id);
   });
 
 });
+
 /* ===============================
-MENSAGENS (COM UNREAD BASE)
+START (CORRIGIDO PARA RENDER)
 =============================== */
 
-io.on("connection", async (socket) => {
+const PORT = process.env.PORT || 3000;
 
-  /* ===============================
-  HISTÓRICO
-  =============================== */
-
-  try {
-    const history = await Message
-      .find()
-      .sort({ time: -1 })
-      .limit(200)
-      .lean();
-
-    socket.emit("history", history.reverse());
-
-  } catch (err) {
-    console.error("Erro histórico:", err);
-  }
-
-  /* ===============================
-  UNREAD SYSTEM (BASE)
-  =============================== */
-
-  socket.unreadCount = 0;
-
-  socket.on("mark-read", () => {
-    socket.unreadCount = 0;
-    socket.emit("unread-reset");
-  });
-
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("Servidor online na porta", PORT);
 });
-
-/* ===============================
-FUNÇÃO AUXILIAR GLOBAL (UNREAD)
-=============================== */
-
-function broadcastMessage(msg) {
-
-  io.sockets.sockets.forEach((s) => {
-    if (!s.user) return;
-
-    if (!s.handshake || s.id !== msg.socketId) {
-      s.unreadCount = (s.unreadCount || 0) + 1;
-      s.emit("unread", { count: s.unreadCount });
-    }
-  });
-
-  io.emit("message", msg);
-}
