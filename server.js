@@ -49,6 +49,7 @@ UPLOAD AUDIO
 =============================== */
 
 async function uploadAudioToR2(filePath, fileName) {
+
   const fileData = fs.readFileSync(filePath);
 
   await R2_CLIENT.send(new PutObjectCommand({
@@ -59,6 +60,7 @@ async function uploadAudioToR2(filePath, fileName) {
   }));
 
   fs.unlink(filePath, () => {});
+
   return `${PUBLIC_AUDIO_URL}/${fileName}`;
 }
 
@@ -67,6 +69,7 @@ UPLOAD IMAGE
 =============================== */
 
 async function uploadImageToR2(filePath, fileName, mimeType) {
+
   const fileData = fs.readFileSync(filePath);
 
   await R2_CLIENT.send(new PutObjectCommand({
@@ -77,6 +80,7 @@ async function uploadImageToR2(filePath, fileName, mimeType) {
   }));
 
   fs.unlink(filePath, () => {});
+
   return `${PUBLIC_IMAGE_URL}/${fileName}`;
 }
 
@@ -85,23 +89,44 @@ ROTAS UPLOAD
 =============================== */
 
 app.post("/upload-audio", upload.single("audio"), async (req, res) => {
+
   try {
-    const url = await uploadAudioToR2(req.file.path, req.file.filename);
+
+    const filePath = req.file.path;
+    const fileName = req.file.filename;
+
+    const url = await uploadAudioToR2(filePath, fileName);
+
     res.json({ url });
+
   } catch (err) {
+
     console.error("Erro upload áudio:", err);
     res.status(500).json({ error: "upload error" });
+
   }
+
 });
 
 app.post("/upload-image", upload.single("image"), async (req, res) => {
+
   try {
-    const url = await uploadImageToR2(req.file.path, req.file.filename, req.file.mimetype);
+
+    const filePath = req.file.path;
+    const fileName = req.file.filename;
+    const mimeType = req.file.mimetype;
+
+    const url = await uploadImageToR2(filePath, fileName, mimeType);
+
     res.json({ url });
+
   } catch (err) {
+
     console.error("Erro upload imagem:", err);
     res.status(500).json({ error: "upload error" });
+
   }
+
 });
 
 /* ===============================
@@ -117,36 +142,36 @@ SCHEMA
 =============================== */
 
 const MessageSchema = new mongoose.Schema({
+
   user: {
     name: String,
     avatar: String
   },
+
   text: String,
   audio: String,
   image: String,
   duration: Number,
+
   time: {
     type: Date,
     default: Date.now
   }
+
 });
 
 const Message = mongoose.model("Message", MessageSchema);
 
 /* ===============================
-SOCKET PRINCIPAL (ÚNICO)
+SOCKET
 =============================== */
 
-io.on("connection", async (socket) => {
+io.on("connection", async socket => {
 
-  console.log("Usuário conectado:", socket.id);
+  console.log("Usuário conectado");
 
-  socket.user = null;
-
-  /* ===============================
-  HISTORY
-  =============================== */
   try {
+
     const history = await Message
       .find()
       .sort({ time: -1 })
@@ -154,82 +179,55 @@ io.on("connection", async (socket) => {
       .lean();
 
     socket.emit("history", history.reverse());
+
   } catch (err) {
+
     console.error("Erro histórico:", err);
+
   }
 
-  /* ===============================
-  JOIN
-  =============================== */
-  socket.on("join", (user) => {
-    socket.user = {
-      ...user,
-      id: socket.id,
-      lastSeen: Date.now()
-    };
+  socket.on("join", user => {
 
-    io.emit("user-online", socket.user);
+    socket.user = user;
+
   });
 
-  /* ===============================
-  TYPING
-  =============================== */
-  socket.on("typing", (isTyping) => {
-    if (!socket.user) return;
-
-    socket.broadcast.emit("typing", {
-      name: socket.user.name,
-      typing: isTyping
-    });
-  });
-
-  /* ===============================
-  MESSAGE
-  =============================== */
-  socket.on("message", async (msg) => {
+  socket.on("message", async msg => {
 
     try {
 
       const user = socket.user || msg.user;
 
       const newMessage = new Message({
+
         user,
         text: msg.text || null,
         audio: msg.audio || null,
         image: msg.image || null,
         duration: msg.duration || null
+
       });
 
       await newMessage.save();
 
       io.emit("message", newMessage);
 
-      // 🔥 evento para bolinha (unread)
-      socket.broadcast.emit("new-message", {
-        from: user.name,
-        time: Date.now()
-      });
-
     } catch (err) {
-      console.error("Erro salvar mensagem:", err);
-    }
-  });
 
-  /* ===============================
-  DISCONNECT
-  =============================== */
-  socket.on("disconnect", () => {
-    console.log("Usuário desconectado:", socket.id);
+      console.error("Erro salvar mensagem:", err);
+
+    }
+
   });
 
 });
 
 /* ===============================
-START (CORRIGIDO PARA RENDER)
+START
 =============================== */
 
-const PORT = process.env.PORT || 3000;
+server.listen(process.env.PORT || 3000, () => {
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("Servidor online na porta", PORT);
+  console.log("Servidor online");
+
 });
