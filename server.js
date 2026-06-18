@@ -49,7 +49,6 @@ UPLOAD AUDIO
 =============================== */
 
 async function uploadAudioToR2(filePath, fileName) {
-
   const fileData = fs.readFileSync(filePath);
 
   await R2_CLIENT.send(new PutObjectCommand({
@@ -60,7 +59,6 @@ async function uploadAudioToR2(filePath, fileName) {
   }));
 
   fs.unlink(filePath, () => {});
-
   return `${PUBLIC_AUDIO_URL}/${fileName}`;
 }
 
@@ -69,7 +67,6 @@ UPLOAD IMAGE
 =============================== */
 
 async function uploadImageToR2(filePath, fileName, mimeType) {
-
   const fileData = fs.readFileSync(filePath);
 
   await R2_CLIENT.send(new PutObjectCommand({
@@ -80,54 +77,8 @@ async function uploadImageToR2(filePath, fileName, mimeType) {
   }));
 
   fs.unlink(filePath, () => {});
-
   return `${PUBLIC_IMAGE_URL}/${fileName}`;
 }
-
-/* ===============================
-ROTAS UPLOAD
-=============================== */
-
-app.post("/upload-audio", upload.single("audio"), async (req, res) => {
-
-  try {
-
-    const filePath = req.file.path;
-    const fileName = req.file.filename;
-
-    const url = await uploadAudioToR2(filePath, fileName);
-
-    res.json({ url });
-
-  } catch (err) {
-
-    console.error("Erro upload áudio:", err);
-    res.status(500).json({ error: "upload error" });
-
-  }
-
-});
-
-app.post("/upload-image", upload.single("image"), async (req, res) => {
-
-  try {
-
-    const filePath = req.file.path;
-    const fileName = req.file.filename;
-    const mimeType = req.file.mimetype;
-
-    const url = await uploadImageToR2(filePath, fileName, mimeType);
-
-    res.json({ url });
-
-  } catch (err) {
-
-    console.error("Erro upload imagem:", err);
-    res.status(500).json({ error: "upload error" });
-
-  }
-
-});
 
 /* ===============================
 MONGODB
@@ -142,36 +93,160 @@ SCHEMA
 =============================== */
 
 const MessageSchema = new mongoose.Schema({
-
   user: {
     name: String,
     avatar: String
   },
-
   text: String,
   audio: String,
   image: String,
   duration: Number,
-
   time: {
     type: Date,
     default: Date.now
   }
-
 });
 
 const Message = mongoose.model("Message", MessageSchema);
 
 /* ===============================
-SOCKET
+STATUS ONLINE (NOVO)
 =============================== */
 
-io.on("connection", async socket => {
+const usersOnline = new Map(); // socket.id -> user
 
-  console.log("Usuário conectado");
+function broadcastOnlineUsers() {
+  const list = Array.from(usersOnline.values());
+  io.emit("users-online", list);
+}
+/* ===============================
+STATUS + PRESENÇA (NOVO)
+=============================== */
+
+io.on("connection", (socket) => {
+
+  console.log("Usuário conectado:", socket.id);
+
+  socket.user = null;
+
+  /* ===============================
+  JOIN (ENTRAR NO CHAT)
+  =============================== */
+
+  socket.on("join", (user) => {
+    socket.user = {
+      ...user,
+      id: socket.id,
+      lastSeen: Date.now(),
+      typing: false,
+      recording: false
+    };
+
+    usersOnline.set(socket.id, socket.user);
+    broadcastOnlineUsers();
+
+    io.emit("user-status", {
+      id: socket.id,
+      status: "online"
+    });
+  });
+
+  /* ===============================
+  DIGITANDO
+  =============================== */
+
+  socket.on("typing", (isTyping) => {
+    if (!socket.user) return;
+
+    socket.user.typing = isTyping;
+    usersOnline.set(socket.id, socket.user);
+
+    socket.broadcast.emit("typing", {
+      id: socket.id,
+      name: socket.user.name,
+      typing: isTyping
+    });
+  });
+
+  /* ===============================
+  GRAVANDO ÁUDIO
+  =============================== */
+
+  socket.on("recording", (isRecording) => {
+    if (!socket.user) return;
+
+    socket.user.recording = isRecording;
+    usersOnline.set(socket.id, socket.user);
+
+    socket.broadcast.emit("recording", {
+      id: socket.id,
+      name: socket.user.name,
+      recording: isRecording
+    });
+  });
+
+  /* ===============================
+  MENSAGEM (MANTIDO + PEQUENO AJUSTE)
+  =============================== */
+
+  socket.on("message", async (msg) => {
+
+    try {
+
+      const user = socket.user || msg.user;
+
+      const newMessage = new Message({
+        user,
+        text: msg.text || null,
+        audio: msg.audio || null,
+        image: msg.image || null,
+        duration: msg.duration || null
+      });
+
+      await newMessage.save();
+
+      io.emit("message", newMessage);
+
+    } catch (err) {
+      console.error("Erro salvar mensagem:", err);
+    }
+  });
+
+  /* ===============================
+  DESCONECTAR (LAST SEEN)
+  =============================== */
+
+  socket.on("disconnect", () => {
+
+    if (socket.user) {
+      socket.user.lastSeen = Date.now();
+      usersOnline.set(socket.id, socket.user);
+
+      io.emit("user-status", {
+        id: socket.id,
+        status: "offline",
+        lastSeen: socket.user.lastSeen
+      });
+    }
+
+    usersOnline.delete(socket.id);
+    broadcastOnlineUsers();
+
+    console.log("Usuário desconectado:", socket.id);
+  });
+
+});
+/* ===============================
+MENSAGENS (COM UNREAD BASE)
+=============================== */
+
+io.on("connection", async (socket) => {
+
+  /* ===============================
+  HISTÓRICO
+  =============================== */
 
   try {
-
     const history = await Message
       .find()
       .sort({ time: -1 })
@@ -181,53 +256,36 @@ io.on("connection", async socket => {
     socket.emit("history", history.reverse());
 
   } catch (err) {
-
     console.error("Erro histórico:", err);
-
   }
 
-  socket.on("join", user => {
+  /* ===============================
+  UNREAD SYSTEM (BASE)
+  =============================== */
 
-    socket.user = user;
+  socket.unreadCount = 0;
 
-  });
-
-  socket.on("message", async msg => {
-
-    try {
-
-      const user = socket.user || msg.user;
-
-      const newMessage = new Message({
-
-        user,
-        text: msg.text || null,
-        audio: msg.audio || null,
-        image: msg.image || null,
-        duration: msg.duration || null
-
-      });
-
-      await newMessage.save();
-
-      io.emit("message", newMessage);
-
-    } catch (err) {
-
-      console.error("Erro salvar mensagem:", err);
-
-    }
-
+  socket.on("mark-read", () => {
+    socket.unreadCount = 0;
+    socket.emit("unread-reset");
   });
 
 });
 
 /* ===============================
-START
+FUNÇÃO AUXILIAR GLOBAL (UNREAD)
 =============================== */
 
-server.listen(process.env.PORT || 3000, () => {
+function broadcastMessage(msg) {
 
-  console.log("Servidor online");
+  io.sockets.sockets.forEach((s) => {
+    if (!s.user) return;
 
-});
+    if (!s.handshake || s.id !== msg.socketId) {
+      s.unreadCount = (s.unreadCount || 0) + 1;
+      s.emit("unread", { count: s.unreadCount });
+    }
+  });
+
+  io.emit("message", msg);
+}
