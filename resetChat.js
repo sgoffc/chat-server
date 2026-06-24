@@ -1,19 +1,21 @@
-const express = require("express");
-const { MongoClient } = require("mongodb");
+import express from "express";
+import { MongoClient } from "mongodb";
+
 const app = express();
 
-// Seu URI do Atlas
 const uri = "mongodb+srv://sgoffc:e%2Dsports@cluster0.ojl9qde.mongodb.net/chat";
-const client = new MongoClient(uri);
 
 async function resetChat() {
+  const client = new MongoClient(uri);
+
   try {
     await client.connect();
 
-    const db = client.db("chat");                
-    const messages = db.collection("messages");  
+    const db = client.db("chat");
+    const messages = db.collection("messages");
 
-    const result = await messages.deleteMany({}); 
+    const result = await messages.deleteMany({});
+
     console.log(`Histórico apagado: ${result.deletedCount} mensagens removidas.`);
     return `Histórico apagado: ${result.deletedCount} mensagens removidas.`;
 
@@ -25,13 +27,13 @@ async function resetChat() {
   }
 }
 
-// Aqui é a rota HTTP para chamar pelo botão do site
 app.get("/reset-chat", async (req, res) => {
   const msg = await resetChat();
   res.send(msg);
 });
 
-// Porta padrão do Render
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Servidor de reset rodando!");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Servidor de reset rodando na porta ${PORT}`);
 });
